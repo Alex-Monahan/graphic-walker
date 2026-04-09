@@ -53,6 +53,9 @@ export default defineConfig({
       "@motherduck/react-sql-query": path.resolve(__dirname, "src/md-sdk.tsx"),
       // Catch any static import/require("util") during module resolution.
       util: path.resolve(__dirname, "src/util-shim.ts"),
+      // styled-components imports react-dom/server for SSR — not available
+      // in the Dive runtime and never used. Provide an empty stub.
+      "react-dom/server": path.resolve(__dirname, "src/react-dom-server-shim.ts"),
     },
   },
   define: {
@@ -73,7 +76,6 @@ export default defineConfig({
         "react",
         "react-dom",
         "react-dom/client",
-        "react-dom/server",
         "@motherduck/react-sql-query",
       ],
       output: {
