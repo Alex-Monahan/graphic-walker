@@ -431,7 +431,7 @@ function GWExplorer({
                 computation={computation}
                 fields={fields}
                 appearance="light"
-                defaultRenderer="observable-plot"
+                defaultRenderer="vega-lite"
                 onError={(err) => dlog(`GW onError: ${err?.message || err}`)}
                 style={{ width: "100%", height: "100%" }}
               />
