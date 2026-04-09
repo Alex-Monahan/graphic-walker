@@ -69,10 +69,18 @@ export default defineConfig({
       fileName: () => "dive-bundle.js",
     },
     rollupOptions: {
-      external: ["react", "@motherduck/react-sql-query"],
+      external: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "react-dom/server",
+        "@motherduck/react-sql-query",
+      ],
       output: {
         globals: {
           react: "React",
+          "react-dom": "ReactDOM",
+          "react-dom/client": "ReactDOMClient",
         },
         inlineDynamicImports: true,
       },
