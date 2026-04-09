@@ -357,20 +357,38 @@ function GWExplorer({
     }
   }, [data, fields]);
 
-  // Use main-thread computation instead of web workers (blocked by sandbox CSP)
+  // Use main-thread computation instead of web workers (blocked by sandbox CSP).
+  // getComputation(data) returns (payload) => Promise<IRow[]> that runs
+  // filter/sort/aggregate/transform on the main thread.
   const computation = useMemo(() => {
-    if (data.length === 0) return undefined;
-    dlog("Creating main-thread computation function");
+    if (data.length === 0) {
+      dlog("No data yet, computation = placeholder");
+      return async (payload: any) => {
+        dlog(`Computation called with no data: ${JSON.stringify(payload).substring(0, 200)}`);
+        return [];
+      };
+    }
+    dlog(`Creating main-thread computation for ${data.length} rows`);
     const fn = getComputation(data);
-    // Wrap to add logging
+    let callCount = 0;
     return async (payload: any) => {
-      dlog(`Computation: ${JSON.stringify(payload).substring(0, 200)}`);
+      callCount++;
+      const tag = `Computation #${callCount}`;
+      const payloadStr = JSON.stringify(payload, (k, v) =>
+        typeof v === "bigint" ? Number(v) : v
+      ).substring(0, 500);
+      dlog(`${tag} request: ${payloadStr}`);
       try {
         const result = await fn(payload);
-        dlog(`Computation result: ${result.length} rows`);
+        dlog(`${tag} OK: ${result.length} rows returned`);
+        if (result.length > 0) {
+          const keys = Object.keys(result[0]);
+          dlog(`${tag} columns: ${keys.join(", ")}`);
+        }
         return result;
       } catch (e: any) {
-        dlog(`Computation ERROR: ${e.message}`);
+        dlog(`${tag} ERROR: ${e.message}`);
+        dlog(`${tag} stack: ${e.stack?.substring(0, 300)}`);
         throw e;
       }
     };
@@ -408,13 +426,20 @@ function GWExplorer({
       ) : (
         <div style={{ height: "calc(100vh - 80px)" }} data-testid="gw-container">
           <ErrorBoundary label="GraphicWalker">
-            <GraphicWalker
-              computation={computation}
-              fields={fields}
-              appearance="light"
-              defaultRenderer="observable-plot"
-              style={{ width: "100%", height: "100%" }}
-            />
+            {computation ? (
+              <GraphicWalker
+                computation={computation}
+                fields={fields}
+                appearance="light"
+                defaultRenderer="observable-plot"
+                onError={(err) => dlog(`GW onError: ${err?.message || err}`)}
+                style={{ width: "100%", height: "100%" }}
+              />
+            ) : (
+              <div className="p-6" style={{ color: "#6a6a6a" }}>
+                Preparing computation...
+              </div>
+            )}
           </ErrorBoundary>
         </div>
       )}
