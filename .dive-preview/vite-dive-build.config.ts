@@ -3,15 +3,56 @@
  * Bundles everything EXCEPT react and @motherduck/react-sql-query
  * (which are provided by the Dive runtime).
  */
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+/**
+ * Custom Rollup plugin that strips references to Node.js built-in modules
+ * from the output bundle. The MotherDuck Dive runtime does static analysis
+ * and rejects any code that references unavailable modules — even in dead
+ * code paths like `obj && obj.require && obj.require("util")`.
+ *
+ * This runs at the `renderChunk` phase (after bundling, before writing),
+ * so it catches dynamic requires that resolve.alias cannot intercept.
+ */
+function stripNodeBuiltins(): Plugin {
+  // Modules to strip. Pattern matches require("mod") and require('mod').
+  const modules = ["util", "buffer", "stream", "path", "fs", "os", "crypto"];
+  const pattern = new RegExp(
+    `\\.require\\(["'](${modules.join("|")})["']\\)`,
+    "g"
+  );
+
+  return {
+    name: "strip-node-builtins",
+    renderChunk(code) {
+      if (!pattern.test(code)) return null;
+      // Reset lastIndex since we used .test()
+      pattern.lastIndex = 0;
+      return {
+        code: code.replace(pattern, ".require(/*stripped*/)"),
+        map: null,
+      };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      // Use classic JSX transform (React.createElement) instead of
+      // automatic (react/jsx-runtime) since the Dive runtime doesn't
+      // provide react/jsx-runtime as a separate module.
+      jsxRuntime: "classic",
+    }),
+    stripNodeBuiltins(),
+  ],
   resolve: {
     alias: {
       "@motherduck/react-sql-query": path.resolve(__dirname, "src/md-sdk.tsx"),
+      // Catch any static import/require("util") during module resolution.
+      util: path.resolve(__dirname, "src/util-shim.ts"),
     },
   },
   build: {
@@ -21,18 +62,16 @@ export default defineConfig({
       fileName: () => "dive-bundle.js",
     },
     rollupOptions: {
-      external: ["react", "react/jsx-runtime", "@motherduck/react-sql-query"],
+      external: ["react", "@motherduck/react-sql-query"],
       output: {
         globals: {
           react: "React",
-          "react/jsx-runtime": "jsxRuntime",
         },
-        // Inline all dynamic imports into a single chunk
         inlineDynamicImports: true,
       },
     },
-    minify: false, // Keep readable for debugging
-    cssCodeSplit: false, // Inline CSS
+    minify: false,
+    cssCodeSplit: false,
     outDir: "dist",
   },
 });
