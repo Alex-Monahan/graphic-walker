@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { useSQLQuery } from "@motherduck/react-sql-query";
-import { GraphicWalker } from "@kanaries/graphic-walker";
+import { GraphicWalker, getComputation } from "@kanaries/graphic-walker";
 import type { IMutField, IRow } from "@kanaries/graphic-walker";
 import { Loader2 } from "lucide-react";
 import "@kanaries/graphic-walker/dist/style.css";
@@ -357,6 +357,25 @@ function GWExplorer({
     }
   }, [data, fields]);
 
+  // Use main-thread computation instead of web workers (blocked by sandbox CSP)
+  const computation = useMemo(() => {
+    if (data.length === 0) return undefined;
+    dlog("Creating main-thread computation function");
+    const fn = getComputation(data);
+    // Wrap to add logging
+    return async (payload: any) => {
+      dlog(`Computation: ${JSON.stringify(payload).substring(0, 200)}`);
+      try {
+        const result = await fn(payload);
+        dlog(`Computation result: ${result.length} rows`);
+        return result;
+      } catch (e: any) {
+        dlog(`Computation ERROR: ${e.message}`);
+        throw e;
+      }
+    };
+  }, [data]);
+
   const isLoading = columns.isLoading || dataQuery.isLoading;
   const hasError = columns.isError || dataQuery.isError;
   const errorMsg = columns.error?.message || dataQuery.error?.message;
@@ -390,7 +409,7 @@ function GWExplorer({
         <div style={{ height: "calc(100vh - 80px)" }} data-testid="gw-container">
           <ErrorBoundary label="GraphicWalker">
             <GraphicWalker
-              data={data}
+              computation={computation}
               fields={fields}
               appearance="light"
               defaultRenderer="observable-plot"
