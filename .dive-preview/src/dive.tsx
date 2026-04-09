@@ -358,32 +358,26 @@ function GWExplorer({
   }, [data, fields]);
 
   // Use main-thread computation instead of web workers (blocked by sandbox CSP).
-  // getComputation(data) returns (payload) => Promise<IRow[]> that runs
-  // filter/sort/aggregate/transform on the main thread.
-  const computation = useMemo(() => {
-    if (data.length === 0) {
-      dlog("No data yet, computation = placeholder");
-      return async (payload: any) => {
-        dlog(`Computation called with no data: ${JSON.stringify(payload).substring(0, 200)}`);
-        return [];
-      };
-    }
+  const computationReady = data.length > 0;
+  const computationRef = useRef<any>(null);
+  const callCountRef = useRef(0);
+
+  // Create computation function ONCE when data first arrives, keep stable reference
+  if (computationReady && !computationRef.current) {
     dlog(`Creating main-thread computation for ${data.length} rows`);
     const fn = getComputation(data);
-    let callCount = 0;
-    return async (payload: any) => {
-      callCount++;
-      const tag = `Computation #${callCount}`;
+    computationRef.current = async (payload: any) => {
+      callCountRef.current++;
+      const tag = `Computation #${callCountRef.current}`;
       const payloadStr = JSON.stringify(payload, (k, v) =>
         typeof v === "bigint" ? Number(v) : v
       ).substring(0, 500);
       dlog(`${tag} request: ${payloadStr}`);
       try {
         const result = await fn(payload);
-        dlog(`${tag} OK: ${result.length} rows returned`);
+        dlog(`${tag} OK: ${result.length} rows`);
         if (result.length > 0) {
-          const keys = Object.keys(result[0]);
-          dlog(`${tag} columns: ${keys.join(", ")}`);
+          dlog(`${tag} cols: ${Object.keys(result[0]).join(", ")}`);
         }
         return result;
       } catch (e: any) {
@@ -392,7 +386,8 @@ function GWExplorer({
         throw e;
       }
     };
-  }, [data]);
+  }
+  const computation = computationRef.current;
 
   const isLoading = columns.isLoading || dataQuery.isLoading;
   const hasError = columns.isError || dataQuery.isError;
@@ -426,16 +421,23 @@ function GWExplorer({
       ) : (
         <div style={{ height: "calc(100vh - 80px)" }} data-testid="gw-container">
           <ErrorBoundary label="GraphicWalker">
-            {computation ? (
-              <GraphicWalker
-                computation={computation}
-                fields={fields}
-                appearance="light"
-                defaultRenderer="vega-lite"
-                onError={(err) => dlog(`GW onError: ${err?.message || err}`)}
-                style={{ width: "100%", height: "100%" }}
-              />
-            ) : (
+            {computation ? (() => {
+              dlog("Rendering <GraphicWalker> now");
+              return (
+                <GraphicWalker
+                  key={`gw-${data.length}`}
+                  computation={computation}
+                  fields={fields}
+                  appearance="light"
+                  defaultRenderer="vega-lite"
+                  onError={(err: any) => {
+                    dlog(`GW onError: ${err?.message || String(err)}`);
+                    if (err?.stack) dlog(`GW stack: ${err.stack.substring(0, 300)}`);
+                  }}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              );
+            })() : (
               <div className="p-6" style={{ color: "#6a6a6a" }}>
                 Preparing computation...
               </div>
