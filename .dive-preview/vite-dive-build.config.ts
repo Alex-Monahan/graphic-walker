@@ -8,43 +8,73 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 /**
- * Strips dynamic require() calls for Node.js built-in modules.
- * The Dive runtime does static analysis and rejects unavailable modules.
+ * Post-bundle text replacement plugin. The Dive runtime is a restricted
+ * sandbox — no `process` global, no Node.js built-ins, no module
+ * modification. This plugin rewrites the final output so:
+ *
+ * 1. `process.env.NODE_ENV` → `"production"`
+ * 2. `process.env.SOMETHING` → `undefined` (via process.env → object literal)
+ * 3. `typeof process` → `"undefined"` (so guarded checks short-circuit)
+ * 4. `.require("util")` etc. → stripped (Node.js builtins)
+ *
+ * Using renderChunk (not `define`) avoids creating variables before imports
+ * which would break ES module parsing in the Dive runtime.
  */
-function stripNodeBuiltins(): Plugin {
-  const modules = ["util", "buffer", "stream", "path", "fs", "os", "crypto"];
-  const pattern = new RegExp(
-    `\\.require\\(["'](${modules.join("|")})["']\\)`,
+function patchForDiveRuntime(): Plugin {
+  const nodeBuiltins = ["util", "buffer", "stream", "path", "fs", "os", "crypto"];
+  const requirePattern = new RegExp(
+    `\\.require\\(["'](${nodeBuiltins.join("|")})["']\\)`,
     "g"
   );
-  return {
-    name: "strip-node-builtins",
-    renderChunk(code) {
-      if (!pattern.test(code)) return null;
-      pattern.lastIndex = 0;
-      return { code: code.replace(pattern, ".require(/*stripped*/)"), map: null };
-    },
-  };
-}
 
-/**
- * Injects a `process` shim at the very top of the bundle so that any
- * reference to `process.env.X` works without error. This is simpler and
- * more robust than Vite's `define` which can produce unexpected output
- * (empty objects, wrong scoping) in library mode.
- */
-function injectProcessShim(): Plugin {
   return {
-    name: "inject-process-shim",
+    name: "patch-for-dive-runtime",
     renderChunk(code) {
-      const shim = [
-        "// Process shim for Dive runtime (no Node.js globals)",
-        'if(typeof process==="undefined"){globalThis.process={env:{NODE_ENV:"production"}};}',
-        'if(!process.env){process.env={NODE_ENV:"production"};}',
-        'if(!process.env.NODE_ENV){process.env.NODE_ENV="production";}',
-        "",
-      ].join("\n");
-      return { code: shim + code, map: null };
+      let patched = code;
+
+      // 1. Replace process.env.NODE_ENV with "production" (most specific first)
+      patched = patched.replace(/process\.env\.NODE_ENV/g, '"production"');
+
+      // 2. Replace process.env.JEST_WORKER_ID
+      patched = patched.replace(/process\.env\.JEST_WORKER_ID/g, "undefined");
+
+      // 3. Replace remaining process.env.X patterns with undefined
+      //    Match process.env.IDENTIFIER but not the ones already replaced
+      patched = patched.replace(/process\.env\.([A-Z_][A-Z_0-9]*)/g, "undefined");
+
+      // 4. Replace bare `process.env` (without property access) with safe object
+      //    This handles code like: `var x = process.env`
+      patched = patched.replace(/process\.env(?![.\w])/g, '({})');
+
+      // 5. Replace `typeof process` with `"undefined"` so guarded checks
+      //    like `typeof process !== "undefined" && process.env` short-circuit.
+      //    Must come AFTER process.env replacements above.
+      patched = patched.replace(/typeof process(?!\.\w)/g, '"undefined"');
+
+      // 6. Strip Node.js built-in dynamic requires
+      if (requirePattern.test(patched)) {
+        requirePattern.lastIndex = 0;
+        patched = patched.replace(requirePattern, ".require(/*stripped*/)");
+      }
+
+      // 7. Patch removed React 19 APIs. findDOMNode was removed in React 19.
+      //    Remove it from the import and add a shim variable.
+      if (patched.includes("findDOMNode")) {
+        // Remove findDOMNode from react-dom import (handles ", findDOMNode" or "findDOMNode, ")
+        patched = patched.replace(/, findDOMNode/g, "");
+        patched = patched.replace(/findDOMNode, /g, "");
+        // Add shim right after the last import line
+        const lastImportIdx = patched.lastIndexOf("\nimport ");
+        if (lastImportIdx !== -1) {
+          const endOfLine = patched.indexOf("\n", lastImportIdx + 1);
+          patched = patched.slice(0, endOfLine + 1) +
+            "var findDOMNode = function(c) { return c && c.nodeType ? c : null; };\n" +
+            patched.slice(endOfLine + 1);
+        }
+      }
+
+      if (code === patched) return null;
+      return { code: patched, map: null };
     },
   };
 }
@@ -52,8 +82,7 @@ function injectProcessShim(): Plugin {
 export default defineConfig({
   plugins: [
     react({ jsxRuntime: "classic" }),
-    stripNodeBuiltins(),
-    injectProcessShim(),
+    patchForDiveRuntime(),
   ],
   resolve: {
     alias: {

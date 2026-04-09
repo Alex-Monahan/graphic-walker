@@ -6,14 +6,11 @@ import type { IMutField, IRow } from "@kanaries/graphic-walker";
 import { Loader2 } from "lucide-react";
 import "@kanaries/graphic-walker/dist/style.css";
 
-// ── Global BigInt safety net ──────────────────────────────────────
-// Prevent "Do not know how to serialize a BigInt" anywhere in the app.
-// This fires if any code path calls JSON.stringify on a BigInt value.
-(BigInt.prototype as any).toJSON = function () {
-  return Number(this);
-};
-
 const N = (v: unknown): number => (v != null ? Number(v) : 0);
+
+// BigInt JSON safety — wrapped in try/catch for sandboxed environments
+// that may block built-in prototype modification.
+try { (BigInt.prototype as any).toJSON = function () { return Number(this); }; } catch {}
 
 // ── Debug log panel ───────────────────────────────────────────────
 const debugLines: string[] = [];
