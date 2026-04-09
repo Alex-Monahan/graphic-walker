@@ -87,6 +87,21 @@ function patchForDiveRuntime(): Plugin {
         "Symbol.for('react.element')"
       );
 
+      // ── Patch new Function() calls blocked by sandbox CSP ──
+      // d3-dsv uses new Function for CSV row parsing — replace with safe eval
+      patched = patched.replace(
+        /new Function\("d", "return \{" \+ e19\.map\(function\(t, n\) \{\s*return JSON\.stringify\(t\) \+ ": d\[" \+ n \+ '\] \|\| ""';\s*\}\)\.join\(","\) \+ "\}"\)/,
+        '(function(keys) { return function(d) { var o = {}; for (var i = 0; i < keys.length; i++) o[keys[i]] = d[i] || ""; return o; }; })(e19)'
+      );
+      // MobX debugger statement (multiline template literal)
+      patched = patched.replace(/new Function\(`debugger;[\s\S]*?`\)/g, "(function(){})");
+
+      // ── Strip external image/resource URLs blocked by sandbox CSP ──
+      patched = patched.replace(
+        /https:\/\/imagedelivery\.net[^"']*/g,
+        ""
+      );
+
       // ── Strip Leaflet external CSS injection (blocked by sandbox CSP) ──
       patched = patched.replace(
         /v__default\.createElement\("link"[^)]*leaflet[^)]*\)/g,
