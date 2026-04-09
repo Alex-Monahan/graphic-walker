@@ -55,6 +55,13 @@ export default defineConfig({
       util: path.resolve(__dirname, "src/util-shim.ts"),
     },
   },
+  define: {
+    // Replace process.env.NODE_ENV at compile time. Vite skips this in
+    // library mode, but the Dive runtime has no `process` global.
+    "process.env.NODE_ENV": JSON.stringify("production"),
+    "process.env.JEST_WORKER_ID": "undefined",
+    "process.env": JSON.stringify({ NODE_ENV: "production" }),
+  },
   build: {
     lib: {
       entry: path.resolve(__dirname, "src/dive.tsx"),
@@ -71,6 +78,11 @@ export default defineConfig({
       },
     },
     minify: false,
+    // Vite doesn't replace process.env.NODE_ENV in library mode.
+    // The Dive runtime has no `process` global, so we must inline it.
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    },
     cssCodeSplit: false,
     outDir: "dist",
   },
