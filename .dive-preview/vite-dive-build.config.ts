@@ -76,6 +76,12 @@ function patchForDiveRuntime(): Plugin {
         patched = patched.slice(0, endOfLine + 1) + shims + "\n" + patched.slice(endOfLine + 1);
       }
 
+      // ── Strip Leaflet external CSS injection (blocked by sandbox CSP) ──
+      patched = patched.replace(
+        /v__default\.createElement\("link"[^)]*leaflet[^)]*\)/g,
+        "null"
+      );
+
       // ── Strip dead-code strings that contain module-like references ──
       // styled-components has React Native warnings with module-like strings
       patched = patched.replace(/imported 'styled-components'/g, "imported styled-components");
@@ -117,6 +123,10 @@ export default defineConfig({
       "@motherduck/react-sql-query": path.resolve(__dirname, "src/md-sdk.tsx"),
       util: path.resolve(__dirname, "src/util-shim.ts"),
       "react-dom/server": path.resolve(__dirname, "src/react-dom-server-shim.ts"),
+      // Leaflet tries to inject external CSS which violates the sandbox CSP.
+      // Map features aren't needed in a Dive.
+      "leaflet": path.resolve(__dirname, "src/leaflet-shim.ts"),
+      "react-leaflet": path.resolve(__dirname, "src/react-leaflet-shim.ts"),
     },
   },
   build: {
