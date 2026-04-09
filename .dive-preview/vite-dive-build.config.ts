@@ -93,8 +93,10 @@ function patchForDiveRuntime(): Plugin {
         /new Function\("d", "return \{" \+ e19\.map\(function\(t, n\) \{\s*return JSON\.stringify\(t\) \+ ": d\[" \+ n \+ '\] \|\| ""';\s*\}\)\.join\(","\) \+ "\}"\)/,
         '(function(keys) { return function(d) { var o = {}; for (var i = 0; i < keys.length; i++) o[keys[i]] = d[i] || ""; return o; }; })(e19)'
       );
-      // MobX debugger statement (multiline template literal)
-      patched = patched.replace(/new Function\(`debugger;[\s\S]*?`\)/g, "(function(){})");
+      // MobX debugger statement — multiline template literal IIFE:
+      // new Function(`debugger; ...`)()
+      // Replace the entire IIFE (from "new Function(" to ")()")
+      patched = patched.replace(/new Function\(`debugger;[\s\S]*?`\)\(\)/g, "(function(){})()");
 
       // ── Strip external image/resource URLs blocked by sandbox CSP ──
       patched = patched.replace(
