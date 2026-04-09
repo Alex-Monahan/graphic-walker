@@ -60,10 +60,23 @@ function patchForDiveRuntime(): Plugin {
       patched = patched.replace(requirePattern, ".require(/*stripped*/)");
 
       // ── React 19 compat: remove deprecated exports from react-dom import ──
-      patched = patched.replace(/, unstable_batchedUpdates/g, "");
-      patched = patched.replace(/unstable_batchedUpdates, /g, "");
-      patched = patched.replace(/, findDOMNode/g, "");
-      patched = patched.replace(/findDOMNode, /g, "");
+      // IMPORTANT: Only strip from import statements, not from code usage!
+      // The global `, unstable_batchedUpdates` pattern was destroying comma-operator
+      // expressions like `updateStatus("rendering"), unstable_batchedUpdates(() => ...)`
+      // turning them into `updateStatus("rendering")(() => ...)` which calls undefined.
+      patched = patched.replace(
+        /import\s*\{([^}]*)}\s*from\s*["']react-dom["']/g,
+        (match, imports) => {
+          let cleaned = imports;
+          for (const sym of ["unstable_batchedUpdates", "findDOMNode"]) {
+            // Remove the symbol and any surrounding comma+whitespace
+            cleaned = cleaned.replace(new RegExp(`\\s*,\\s*${sym}\\b`), "");
+            cleaned = cleaned.replace(new RegExp(`${sym}\\s*,\\s*`), "");
+            cleaned = cleaned.replace(new RegExp(`\\s*${sym}\\s*`), "");
+          }
+          return `import {${cleaned}} from "react-dom"`;
+        }
+      );
 
       // ── Inject shims after the last import statement ──
       const lastImportIdx = patched.lastIndexOf("\nimport ");
@@ -108,6 +121,51 @@ function patchForDiveRuntime(): Plugin {
       patched = patched.replace(
         /v__default\.createElement\("link"[^)]*leaflet[^)]*\)/g,
         "null"
+      );
+
+      // ── Enable Vega CSP-safe AST interpreter ──
+      // Vega's expression compiler uses Function() (without `new`) to generate
+      // expression evaluators at chart-render time. The sandbox CSP blocks this.
+      // The safe AST interpreter is already bundled — we just need to activate it
+      // by passing `ast: true` to every vega-embed call.
+      patched = patched.replace(
+        /mode: "vega-lite"/g,
+        'mode: "vega-lite", ast: true'
+      );
+
+      // ── Replace Function("return this")() with globalThis ──
+      // Lodash uses Function("return this")() as a global-object fallback.
+      // In practice it's short-circuit protected (self/global checked first),
+      // but patch it for safety in strict CSP environments.
+      patched = patched.replace(/Function\("return this"\)\(\)/g, "globalThis");
+
+      // ── Diagnostic: wrap vega-embed to log rendering pipeline ──
+      patched = patched.replace(
+        'async function Rg(e19, t, n = {}) {',
+        `async function Rg(e19, t, n = {}) {
+  var _dlog = typeof window !== "undefined" && window.__dlog || function(){};
+  _dlog("[EMBED] called, ast=" + (n && n.ast) + " mode=" + (n && n.mode) + " renderer=" + (n && n.renderer));
+  try {`
+      );
+      // Close the try/catch at the end of the Rg function body
+      patched = patched.replace(
+        /return await _Ht\(e19, i, u, r\);\s*\n\}/,
+        `var _result = await _Ht(e19, i, u, r);
+    _dlog("[EMBED] success");
+    return _result;
+  } catch(_embedErr) {
+    _dlog("[EMBED] ERROR: " + _embedErr.message);
+    if (_embedErr.stack) _dlog("[EMBED] stack: " + _embedErr.stack.substring(0, 500));
+    throw _embedErr;
+  }
+}`
+      );
+      // Also log inside _Ht at key points (vega parse + view creation)
+      patched = patched.replace(
+        'async function _Ht(e19, t, n = {}, i) {',
+        `async function _Ht(e19, t, n = {}, i) {
+  var _dlog = typeof window !== "undefined" && window.__dlog || function(){};
+  _dlog("[_Ht] ast=" + (n && n.ast) + " container=" + (e19 && e19.tagName));`
       );
 
       // ── Strip dead-code strings that contain module-like references ──

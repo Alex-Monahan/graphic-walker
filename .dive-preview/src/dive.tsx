@@ -19,6 +19,22 @@ function dlog(msg: string) {
   debugLines.push(`${ts} ${msg}`);
   if (debugLines.length > 500) debugLines.shift();
 }
+// Expose dlog globally so bundle patches (vega-embed wrapper) can use it
+if (typeof window !== "undefined") (window as any).__dlog = dlog;
+
+// Intercept ALL console output to capture errors/warnings from GW/Vega internals
+if (typeof window !== "undefined") {
+  const _origError = console.error;
+  const _origWarn = console.warn;
+  console.error = (...args: any[]) => {
+    dlog(`[console.error] ${args.map(a => typeof a === 'object' ? JSON.stringify(a, (k,v) => typeof v === 'bigint' ? Number(v) : v).substring(0, 300) : String(a)).join(' ')}`);
+    _origError.apply(console, args);
+  };
+  console.warn = (...args: any[]) => {
+    dlog(`[console.warn] ${args.map(a => typeof a === 'object' ? JSON.stringify(a, (k,v) => typeof v === 'bigint' ? Number(v) : v).substring(0, 300) : String(a)).join(' ')}`);
+    _origWarn.apply(console, args);
+  };
+}
 
 // Capture ALL uncaught errors — including async, event handlers, and
 // errors inside ShadowDom that React ErrorBoundary can't reach.
@@ -31,6 +47,10 @@ if (typeof window !== "undefined") {
     const msg = e.reason?.message || e.reason?.toString?.() || String(e.reason);
     dlog(`[UNHANDLED PROMISE] ${msg}`);
     if (e.reason?.stack) dlog(`[STACK] ${e.reason.stack}`);
+  });
+  // CSP violation listener — logs when sandbox blocks eval/Function/inline scripts
+  window.addEventListener("securitypolicyviolation", (e) => {
+    dlog(`[CSP VIOLATION] directive=${e.violatedDirective} blocked=${e.blockedURI} source=${e.sourceFile}:${e.lineNumber}`);
   });
 }
 
