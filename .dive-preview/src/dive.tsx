@@ -20,20 +20,66 @@ const debugLines: string[] = [];
 function dlog(msg: string) {
   const ts = new Date().toISOString().slice(11, 23);
   debugLines.push(`${ts} ${msg}`);
-  if (debugLines.length > 200) debugLines.shift();
+  if (debugLines.length > 500) debugLines.shift();
+}
+
+// Capture ALL uncaught errors — including async, event handlers, and
+// errors inside ShadowDom that React ErrorBoundary can't reach.
+if (typeof window !== "undefined") {
+  window.addEventListener("error", (e) => {
+    dlog(`[UNCAUGHT] ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
+    if (e.error?.stack) dlog(`[STACK] ${e.error.stack}`);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    const msg = e.reason?.message || e.reason?.toString?.() || String(e.reason);
+    dlog(`[UNHANDLED PROMISE] ${msg}`);
+    if (e.reason?.stack) dlog(`[STACK] ${e.reason.stack}`);
+  });
 }
 
 function DebugPanel() {
   const [open, setOpen] = useState(false);
   const [, forceRender] = useState(0);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const text = debugLines.join("\n");
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    } else {
+      // Fallback for contexts without clipboard API
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   return (
     <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 99999, fontFamily: "monospace", fontSize: 11 }}>
-      <button
-        onClick={() => { setOpen(!open); forceRender((n) => n + 1); }}
-        style={{ background: "#231f20", color: "#fff", border: "none", padding: "4px 12px", cursor: "pointer" }}
-      >
-        {open ? "▼ Hide debug" : "▲ Show debug"} ({debugLines.length} lines)
-      </button>
+      <div style={{ display: "flex", gap: 4 }}>
+        <button
+          onClick={() => { setOpen(!open); forceRender((n) => n + 1); }}
+          style={{ background: "#231f20", color: "#fff", border: "none", padding: "4px 12px", cursor: "pointer" }}
+        >
+          {open ? "▼ Hide debug" : "▲ Show debug"} ({debugLines.length} lines)
+        </button>
+        {open && (
+          <button
+            onClick={handleCopy}
+            style={{ background: "#0777b3", color: "#fff", border: "none", padding: "4px 12px", cursor: "pointer" }}
+          >
+            {copied ? "Copied!" : "Copy logs"}
+          </button>
+        )}
+      </div>
       {open && (
         <div style={{ background: "#111", color: "#0f0", padding: 8, maxHeight: 300, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
           {debugLines.join("\n") || "(no logs yet)"}
