@@ -1,17 +1,32 @@
 /**
  * Vite config for building the dive.tsx into a single deployable file.
- * Bundles everything EXCEPT react, react-dom, and @motherduck/react-sql-query
- * (which are provided by the Dive runtime).
+ *
+ * The MotherDuck Dive runtime provides EXACTLY these modules:
+ *   react, React, react-dom, react-dom/client, d3, lucide-react,
+ *   recharts, @motherduck/react-sql-query
+ *
+ * EVERYTHING else must be inlined. The runtime does full-text scanning
+ * and rejects any import/require referencing unavailable modules.
  */
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, rmSync } from "fs";
+
+// Modules the Dive runtime provides — these are the ONLY allowed externals.
+const DIVE_RUNTIME_MODULES = new Set([
+  "react",
+  "react-dom",
+  "react-dom/client",
+  "d3",
+  "lucide-react",
+  "recharts",
+  "@motherduck/react-sql-query",
+]);
 
 /**
  * Post-write plugin that patches the output file on disk.
- * This is the most reliable approach because it runs after ALL Rollup
- * processing (including external import generation) is complete.
+ * This runs AFTER Rollup finishes all processing.
  */
 function patchForDiveRuntime(): Plugin {
   const nodeBuiltins = ["util", "buffer", "stream", "path", "fs", "os", "crypto"];
@@ -33,37 +48,24 @@ function patchForDiveRuntime(): Plugin {
       }
       let patched = code;
 
-      // 1. process.env.NODE_ENV → "production"
+      // ── Process/env replacements ──
       patched = patched.replace(/process\.env\.NODE_ENV/g, '"production"');
-
-      // 2. process.env.JEST_WORKER_ID → undefined
       patched = patched.replace(/process\.env\.JEST_WORKER_ID/g, "undefined");
-
-      // 3. Remaining process.env.IDENTIFIER → undefined
       patched = patched.replace(/process\.env\.([A-Z_][A-Z_0-9]*)/g, "undefined");
-
-      // 4. Bare process.env → safe empty object
       patched = patched.replace(/process\.env(?![.\w])/g, "({})");
-
-      // 5. typeof process → "undefined" (must come AFTER process.env replacements)
       patched = patched.replace(/typeof process(?!\.\w)/g, '"undefined"');
 
-      // 6. Strip Node.js built-in dynamic requires
+      // ── Node.js built-in requires ──
       requirePattern.lastIndex = 0;
       patched = patched.replace(requirePattern, ".require(/*stripped*/)");
 
-      // 7. Remove import "react-dom/client" (bare side-effect, not available in Dive)
-      patched = patched.replace(/import\s*"react-dom\/client"\s*;\n?/g, "");
-
-      // 8. Remove unstable_batchedUpdates from react-dom import
+      // ── React 19 compat: remove deprecated exports from react-dom import ──
       patched = patched.replace(/, unstable_batchedUpdates/g, "");
       patched = patched.replace(/unstable_batchedUpdates, /g, "");
-
-      // 9. Remove findDOMNode from react-dom import
       patched = patched.replace(/, findDOMNode/g, "");
       patched = patched.replace(/findDOMNode, /g, "");
 
-      // 10. Inject shims after the last import statement
+      // ── Inject shims after the last import statement ──
       const lastImportIdx = patched.lastIndexOf("\nimport ");
       if (lastImportIdx !== -1) {
         const endOfLine = patched.indexOf("\n", lastImportIdx + 1);
@@ -71,16 +73,36 @@ function patchForDiveRuntime(): Plugin {
           "var findDOMNode = function(c) { return c && c.nodeType ? c : null; };",
           "var unstable_batchedUpdates = function(fn) { fn(); };",
         ].join("\n");
-        patched =
-          patched.slice(0, endOfLine + 1) +
-          shims +
-          "\n" +
-          patched.slice(endOfLine + 1);
+        patched = patched.slice(0, endOfLine + 1) + shims + "\n" + patched.slice(endOfLine + 1);
+      }
+
+      // ── Strip dead-code strings that contain module-like references ──
+      // styled-components has React Native warnings with module-like strings
+      patched = patched.replace(/imported 'styled-components'/g, "imported styled-components");
+      patched = patched.replace(/import 'styled-components\/native'/g, "use styled-components/native");
+      patched = patched.replace(/import 'styled-components'/g, "use styled-components");
+      // MobX has debug messages mentioning "from 'mobx'"
+      patched = patched.replace(/from 'mobx'/g, "from mobx");
+
+      // ── Final validation: scan for any module references the runtime would reject ──
+      const importPattern = /(?:from\s+["']|import\s+["']|require\s*\(\s*["'])([^"']+)["']/g;
+      let match;
+      const problems: string[] = [];
+      while ((match = importPattern.exec(patched)) !== null) {
+        const mod = match[1];
+        if (!DIVE_RUNTIME_MODULES.has(mod) && !mod.startsWith("./") && !mod.startsWith("../") && !mod.startsWith("/")) {
+          problems.push(`  Line ~${patched.substring(0, match.index).split("\n").length}: ${match[0]}`);
+        }
+      }
+      if (problems.length > 0) {
+        console.error(`[patch] WARNING: Found ${problems.length} references to unavailable modules:`);
+        problems.forEach((p) => console.error(p));
+      } else {
+        console.log("[patch] All module references are valid.");
       }
 
       writeFileSync(filePath, patched);
-      const delta = code.length - patched.length;
-      console.log(`[patch] Patched ${filePath} (${delta > 0 ? "-" : "+"}${Math.abs(delta)} bytes)`);
+      console.log(`[patch] Patched (${code.length} → ${patched.length} bytes)`);
     },
   };
 }
@@ -95,7 +117,6 @@ export default defineConfig({
       "@motherduck/react-sql-query": path.resolve(__dirname, "src/md-sdk.tsx"),
       util: path.resolve(__dirname, "src/util-shim.ts"),
       "react-dom/server": path.resolve(__dirname, "src/react-dom-server-shim.ts"),
-      "react-dom/client": path.resolve(__dirname, "src/react-dom-client-shim.ts"),
     },
   },
   build: {
@@ -105,15 +126,12 @@ export default defineConfig({
       fileName: () => "dive-bundle.js",
     },
     rollupOptions: {
-      external: (id) => {
-        if (id === "react" || id === "react-dom") return true;
-        if (id === "@motherduck/react-sql-query") return true;
-        return false;
-      },
+      external: (id) => DIVE_RUNTIME_MODULES.has(id),
       output: {
         globals: {
           react: "React",
           "react-dom": "ReactDOM",
+          "react-dom/client": "ReactDOMClient",
         },
         inlineDynamicImports: true,
       },
