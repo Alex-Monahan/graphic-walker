@@ -1,6 +1,6 @@
 /**
  * Vite config for building the dive.tsx into a single deployable file.
- * Bundles everything EXCEPT react and @motherduck/react-sql-query
+ * Bundles everything EXCEPT react, react-dom, and @motherduck/react-sql-query
  * (which are provided by the Dive runtime).
  */
 import { defineConfig, type Plugin } from "vite";
@@ -8,62 +8,59 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 /**
- * Custom Rollup plugin that strips references to Node.js built-in modules
- * from the output bundle. The MotherDuck Dive runtime does static analysis
- * and rejects any code that references unavailable modules — even in dead
- * code paths like `obj && obj.require && obj.require("util")`.
- *
- * This runs at the `renderChunk` phase (after bundling, before writing),
- * so it catches dynamic requires that resolve.alias cannot intercept.
+ * Strips dynamic require() calls for Node.js built-in modules.
+ * The Dive runtime does static analysis and rejects unavailable modules.
  */
 function stripNodeBuiltins(): Plugin {
-  // Modules to strip. Pattern matches require("mod") and require('mod').
   const modules = ["util", "buffer", "stream", "path", "fs", "os", "crypto"];
   const pattern = new RegExp(
     `\\.require\\(["'](${modules.join("|")})["']\\)`,
     "g"
   );
-
   return {
     name: "strip-node-builtins",
     renderChunk(code) {
       if (!pattern.test(code)) return null;
-      // Reset lastIndex since we used .test()
       pattern.lastIndex = 0;
-      return {
-        code: code.replace(pattern, ".require(/*stripped*/)"),
-        map: null,
-      };
+      return { code: code.replace(pattern, ".require(/*stripped*/)"), map: null };
+    },
+  };
+}
+
+/**
+ * Injects a `process` shim at the very top of the bundle so that any
+ * reference to `process.env.X` works without error. This is simpler and
+ * more robust than Vite's `define` which can produce unexpected output
+ * (empty objects, wrong scoping) in library mode.
+ */
+function injectProcessShim(): Plugin {
+  return {
+    name: "inject-process-shim",
+    renderChunk(code) {
+      const shim = [
+        "// Process shim for Dive runtime (no Node.js globals)",
+        'if(typeof process==="undefined"){globalThis.process={env:{NODE_ENV:"production"}};}',
+        'if(!process.env){process.env={NODE_ENV:"production"};}',
+        'if(!process.env.NODE_ENV){process.env.NODE_ENV="production";}',
+        "",
+      ].join("\n");
+      return { code: shim + code, map: null };
     },
   };
 }
 
 export default defineConfig({
   plugins: [
-    react({
-      // Use classic JSX transform (React.createElement) instead of
-      // automatic (react/jsx-runtime) since the Dive runtime doesn't
-      // provide react/jsx-runtime as a separate module.
-      jsxRuntime: "classic",
-    }),
+    react({ jsxRuntime: "classic" }),
     stripNodeBuiltins(),
+    injectProcessShim(),
   ],
   resolve: {
     alias: {
       "@motherduck/react-sql-query": path.resolve(__dirname, "src/md-sdk.tsx"),
-      // Catch any static import/require("util") during module resolution.
       util: path.resolve(__dirname, "src/util-shim.ts"),
-      // styled-components imports react-dom/server for SSR — not available
-      // in the Dive runtime and never used. Provide an empty stub.
       "react-dom/server": path.resolve(__dirname, "src/react-dom-server-shim.ts"),
     },
-  },
-  define: {
-    // Replace process.env.NODE_ENV at compile time. Vite skips this in
-    // library mode, but the Dive runtime has no `process` global.
-    "process.env.NODE_ENV": JSON.stringify("production"),
-    "process.env.JEST_WORKER_ID": "undefined",
-    "process.env": JSON.stringify({ NODE_ENV: "production" }),
   },
   build: {
     lib: {
@@ -88,11 +85,7 @@ export default defineConfig({
       },
     },
     minify: false,
-    // Vite doesn't replace process.env.NODE_ENV in library mode.
-    // The Dive runtime has no `process` global, so we must inline it.
-    commonjsOptions: {
-      transformMixedEsModules: true,
-    },
+    commonjsOptions: { transformMixedEsModules: true },
     cssCodeSplit: false,
     outDir: "dist",
   },
