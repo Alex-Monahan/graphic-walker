@@ -1,0 +1,69 @@
+{
+  "cookies": [
+    {
+      "name": "_dd_s",
+      "value": "rum=1&id=7db2fb5f-7de5-4d69-be63-1e1c443b881a&created=1775710912979&expire=1775711813003&logs=1",
+      "domain": "app.motherduck.com",
+      "path": "/",
+      "expires": 1775711813,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "did",
+      "value": "s%3Av0%3A73ee6a8f-cef0-4b63-8cdb-a731c79c16d8.hbwotNEroWznuZo%2F%2BHmhqcPXgF%2FQwfhKM1yORc4%2F4zU",
+      "domain": "auth.motherduck.com",
+      "path": "/",
+      "expires": 1807268513.609415,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "auth0",
+      "value": "s%3Av1.gadzZXNzaW9ug6ZoYW5kbGXEQP7mwgl_8HwNyp1-fw49J-Ollu8-beBBSZZFh_UMeo6fRFUwEBM47XSwT7CUVYztJ9woyUPsAI7UadkYRfA1_OmmY29va2llg6dleHBpcmVz1_-Mqr4AadsnQa5vcmlnaW5hbE1heEFnZc4PcxQAqHNhbWVTaXRlpG5vbmWkc2JpZJHZIE1rdUdyaEtUM21HOVFVcXJYbGJ5Q0NlbHhnRmR1dlEy.0KU2W49LO8kBqeHzcTIrUwlR2XZIz59wmXPqgDRgxug",
+      "domain": "auth.motherduck.com",
+      "path": "/",
+      "expires": 1775970113.609477,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "did_compat",
+      "value": "s%3Av0%3A73ee6a8f-cef0-4b63-8cdb-a731c79c16d8.hbwotNEroWznuZo%2F%2BHmhqcPXgF%2FQwfhKM1yORc4%2F4zU",
+      "domain": "auth.motherduck.com",
+      "path": "/",
+      "expires": 1807268513.609497,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "auth0_compat",
+      "value": "s%3Av1.gadzZXNzaW9ug6ZoYW5kbGXEQP7mwgl_8HwNyp1-fw49J-Ollu8-beBBSZZFh_UMeo6fRFUwEBM47XSwT7CUVYztJ9woyUPsAI7UadkYRfA1_OmmY29va2llg6dleHBpcmVz1_-Mqr4AadsnQa5vcmlnaW5hbE1heEFnZc4PcxQAqHNhbWVTaXRlpG5vbmWkc2JpZJHZIE1rdUdyaEtUM21HOVFVcXJYbGJ5Q0NlbHhnRmR1dlEy.0KU2W49LO8kBqeHzcTIrUwlR2XZIz59wmXPqgDRgxug",
+      "domain": "auth.motherduck.com",
+      "path": "/",
+      "expires": 1775970113.609511,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://app.motherduck.com",
+      "localStorage": [
+        {
+          "name": "loglevel",
+          "value": "INFO"
+        },
+        {
+          "name": "md:logout:keys",
+          "value": "[\"MDOnboardingStep\"]"
+        }
+      ]
+    }
+  ]
+}

@@ -14,7 +14,7 @@ export default defineConfig({
     port: 2002,
   },
   plugins: [
-    react(),
+    react({ jsxRuntime: 'classic' }),
     // @ts-ignore
     {
       ...typescript({

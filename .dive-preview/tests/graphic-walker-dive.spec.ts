@@ -1,9 +1,8 @@
 import { test, expect } from "@playwright/test";
 
-// MotherDuck WASM connection can take a while
-test.setTimeout(120_000);
-
 test.describe("Graphic Walker MotherDuck Dive", () => {
+  // MotherDuck WASM connection can take a while
+  test.setTimeout(120_000);
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     // Wait for MotherDuck connection and database list to load

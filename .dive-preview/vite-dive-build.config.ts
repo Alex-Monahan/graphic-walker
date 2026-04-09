@@ -76,6 +76,17 @@ function patchForDiveRuntime(): Plugin {
         patched = patched.slice(0, endOfLine + 1) + shims + "\n" + patched.slice(endOfLine + 1);
       }
 
+      // ── Fix dual-React element creation ──
+      // GW's pre-built bundle inlines react-jsx-runtime which creates elements
+      // with Symbol.for("react.transitional.element"). The Dive runtime's React
+      // may use a different symbol. Replace with the runtime's createElement.
+      // The inlined jsx function pattern is: { $$typeof: e, type: i, key: o, ref: r, props: a }
+      // Replace it to call v__default.createElement (the external React default import).
+      patched = patched.replace(
+        /Symbol\.for\("react\.transitional\.element"\)/g,
+        "Symbol.for('react.element')"
+      );
+
       // ── Strip Leaflet external CSS injection (blocked by sandbox CSP) ──
       patched = patched.replace(
         /v__default\.createElement\("link"[^)]*leaflet[^)]*\)/g,
@@ -125,6 +136,10 @@ export default defineConfig({
       "react-dom/server": path.resolve(__dirname, "src/react-dom-server-shim.ts"),
       // Leaflet tries to inject external CSS which violates the sandbox CSP.
       // Map features aren't needed in a Dive.
+      // Shim jsx-runtime to use the external React.createElement so all
+      // elements have the same $$typeof as the Dive runtime's React.
+      "react/jsx-runtime": path.resolve(__dirname, "src/jsx-runtime-shim.ts"),
+      "react/jsx-dev-runtime": path.resolve(__dirname, "src/jsx-runtime-shim.ts"),
       "leaflet": path.resolve(__dirname, "src/leaflet-shim.ts"),
       "react-leaflet": path.resolve(__dirname, "src/react-leaflet-shim.ts"),
     },
